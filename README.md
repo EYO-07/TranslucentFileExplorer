@@ -1,5 +1,7 @@
 # TranslucentFileExplorer
 
+![](TranslucentFileExplorer.PNG)
+
 It's under development, so it's not a full featured file explorer yet.
 
 ## Installation
