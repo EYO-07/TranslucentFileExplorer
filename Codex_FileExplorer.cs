@@ -11,6 +11,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Reflection;
+// using System.Management;
+using System.Linq;
 using MethodInvoker = System.Windows.Forms.MethodInvoker;
 using Microsoft.VisualBasic.FileIO;
 using static Codex.Transmutation;
@@ -1492,7 +1494,6 @@ public static class Incantation_DIALOG {
 		LaunchExplorerMoveToBinOrDelete(fullpaths);
 		return true;
 	}
-	
 	private static void LaunchExplorerCopy_OLD(List<string> fullpaths, string destination, bool move) {
         if (fullpaths == null || fullpaths.Count == 0)
             throw new ArgumentException("File list cannot be null or empty.", nameof(fullpaths));
@@ -1732,7 +1733,6 @@ foreach ($file in $files) {{
 			}
 		}
 	}
-
 	public static bool confirmation_dialog(string title, string message) {
 		DialogResult result = MessageBox.Show(
 			message,
@@ -1744,6 +1744,52 @@ foreach ($file in $files) {{
 
 		return result == DialogResult.Yes;
 	}
+	// >>>
+	public static string? input_dialog(Form owner,string title, string message, string default_text) {
+		using (Form form = new Form())
+		using (Label label = new Label())
+		using (TextBox textBox = new TextBox())
+		using (Button buttonOk = new Button())
+		using (Button buttonCancel = new Button()) {
+			form.Text = title;
+			form.StartPosition = FormStartPosition.CenterParent;
+			form.FormBorderStyle = FormBorderStyle.FixedDialog;
+			form.MinimizeBox = false;
+			form.MaximizeBox = false;
+			form.ShowInTaskbar = false;
+			form.ClientSize = new Size(400, 140);
+
+			label.Text = message;
+			label.AutoSize = false;
+			label.SetBounds(10, 10, 380, 30);
+
+			textBox.SetBounds(10, 45, 380, 23);
+			textBox.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+			textBox.Text = default_text;
+
+			buttonOk.Text = "OK";
+			buttonOk.DialogResult = DialogResult.OK;
+			buttonOk.SetBounds(220, 80, 80, 30);
+
+			buttonCancel.Text = "Cancel";
+			buttonCancel.DialogResult = DialogResult.Cancel;
+			buttonCancel.SetBounds(310, 80, 80, 30);
+
+			form.Controls.AddRange(new Control[] { label, textBox, buttonOk, buttonCancel });
+			form.AcceptButton = buttonOk;
+			form.CancelButton = buttonCancel;
+			
+			form.Shown += (s, e) => {
+				textBox.Focus();
+				textBox.SelectAll();
+			};
+			
+			var result = form.ShowDialog(owner);
+
+			return result == DialogResult.OK ? textBox.Text : null;
+		}
+	}
+	// <<< 
 }
 
 // custom widget classes 
@@ -1899,6 +1945,10 @@ public class DarkTreeView : MultiSelectTreeView {
 		node.ForeColor = DetermineNodeColor(node);
 	}
 	private Color DetermineNodeColor(TreeNode node) {
+		var media_color = Color.Red;
+		var exe_color = Color.Yellow;
+		var special_file_color = Color.Cyan;
+		var editable_color = Color.Magenta;
 		if (node.Tag is string path)
 		{
 			if (Directory.Exists(path))
@@ -1906,15 +1956,16 @@ public class DarkTreeView : MultiSelectTreeView {
 			if (File.Exists(path)) {
 				string ext = get_extension(path);
 				switch (ext) { 
-					case ".exe": return Color.Yellow;
-					case ".bat": return Color.Cyan;
-					case ".dll": return Color.Cyan; 
-					case ".txt": return Color.Red; 
-					case ".pdf": return Color.Red; 
-					case ".ini": return Color.Cyan; 
-					case ".json": return Color.Cyan; 
-					case ".mp3": return Color.Red;
-					case ".mp4": return Color.Red; 
+					case ".exe": return exe_color;
+					case ".ini": return special_file_color; 
+					case ".json": return special_file_color;
+					case ".bat": return special_file_color;
+					case ".dll": return special_file_color; 
+					case ".txt": return editable_color; 
+					case ".pdf": return media_color; 
+					case ".mp3": return media_color;
+					case ".mp4": return media_color;
+					case ".mkv": return media_color;
 				}
 				return Color.FromArgb(255,255,255);     // File
 			} 
@@ -2220,7 +2271,172 @@ public static class Conjuration {
 			return false;
 		}
 	}
+	public static bool default_program_edit(string filename) {
+		if (string.IsNullOrWhiteSpace(filename) || !File.Exists(filename)) return false;
+		try {
+			ProcessStartInfo psi = new ProcessStartInfo {
+				FileName = filename,
+				Verb = "edit",
+				UseShellExecute = true // Required to launch with default program
+			};
+			Process.Start(psi);
+			// return true;
+			// var psi = new ProcessStartInfo(filename) {
+				// UseShellExecute = true
+			// };
+			// if (!psi.Verbs.Contains("edit", StringComparer.OrdinalIgnoreCase)) return false;
+			// psi.Verb = "edit";
+			// Process.Start(psi);
+			return true;
+		}
+		catch (Exception ex) {
+			MessageBox.Show(
+				$"Failed to open file for editing.\n\nFile:\n{filename}\n\nError:\n{ex.Message}",
+				"Edit Error",
+				MessageBoxButtons.OK,
+				MessageBoxIcon.Error
+			);
+			return false;
+		}
 
+			
+	}
+	
+	// >>> 
+    /*
+	public static void toggle_internet(string interfaceName) {
+		try
+		{
+			string query = $"SELECT * FROM Win32_NetworkAdapter WHERE NetConnectionID = '{interfaceName.Replace("'", "''")}'";
+
+			using (var searcher = new ManagementObjectSearcher(query))
+			using (var collection = searcher.Get())
+			{
+				var adapter = collection.Cast<ManagementObject>().FirstOrDefault();
+
+				if (adapter == null)
+				{
+					Console.WriteLine($"Interface '{interfaceName}' not found.");
+					return;
+				}
+
+				bool isEnabled = adapter["NetEnabled"] != null && (bool)adapter["NetEnabled"];
+
+				uint result = (uint)adapter.InvokeMethod(isEnabled ? "Disable" : "Enable", null);
+
+				if (result != 0)
+					throw new InvalidOperationException($"Operation failed. Error code: {result}");
+
+				// 🔎 WAIT UNTIL STATE ACTUALLY CHANGES
+				WaitForAdapterState(adapter, !isEnabled);
+
+				Console.WriteLine($"Interface '{interfaceName}' {(isEnabled ? "disabled" : "enabled")}.");
+			}
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"Error toggling interface: {ex.Message}");
+		}
+	}
+	private static void WaitForAdapterState(ManagementObject adapter, bool expectedState) {
+		const int timeoutMs = 8000; // 8 seconds max
+		const int pollInterval = 300;
+
+		int waited = 0;
+
+		while (waited < timeoutMs)
+		{
+			adapter.Get(); // Refresh WMI object
+
+			bool currentState = adapter["NetEnabled"] != null && (bool)adapter["NetEnabled"];
+
+			if (currentState == expectedState)
+				return;
+
+			Thread.Sleep(pollInterval);
+			waited += pollInterval;
+		}
+
+		throw new TimeoutException("Adapter state change timed out.");
+	}
+	public static List<string> get_network_interfaces() {
+		var interfaces = new List<string>();
+		string query = @"
+			SELECT NetConnectionID 
+			FROM Win32_NetworkAdapter 
+			WHERE NetConnectionID IS NOT NULL 
+			AND (AdapterTypeID = 0 OR AdapterTypeID = 9)
+			AND PhysicalAdapter = True";
+
+		using (var searcher = new ManagementObjectSearcher(query))
+		using (var results = searcher.Get())
+		{
+			foreach (ManagementObject adapter in results)
+			{
+				string name = adapter["NetConnectionID"]?.ToString();
+				if (!string.IsNullOrWhiteSpace(name))
+					interfaces.Add(name);
+			}
+		}
+
+		return interfaces;
+	}
+    public static bool ask_for_elevation(Form main_form) {
+        using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent()) {
+            var principal = new System.Security.Principal.WindowsPrincipal(identity);
+
+            if (principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+                return true;
+        }
+        try {
+            var psi = new System.Diagnostics.ProcessStartInfo {
+                FileName = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName,
+                UseShellExecute = true,
+                Verb = "runas"
+            };
+            System.Diagnostics.Process.Start(psi);
+            main_form.Close();
+            return false;
+        }
+        catch
+        {
+            return false; // User cancelled UAC
+        }
+    }
+	*/
+	// <<< 
+	
+	// >>>
+	public static bool rename_file(string filename, string new_name) {
+		if (string.IsNullOrWhiteSpace(filename)) return false;
+		if (string.IsNullOrWhiteSpace(new_name)) return false;
+		try {
+			string fullPath = Path.GetFullPath(filename);
+			if (!File.Exists(fullPath)) return false; 
+			string extension = Path.GetExtension(fullPath);
+			if ( !Path.HasExtension(new_name) ) new_name += extension;
+			if (new_name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
+			string directory = Path.GetDirectoryName(fullPath)!;
+			string newFullPath = Path.Combine(directory, new_name);
+			if (File.Exists(newFullPath)) return false;
+			File.Move(fullPath, newFullPath);
+			return true;
+		} catch (UnauthorizedAccessException) {
+			return false;
+		} catch (IOException) {
+			return false;
+		} catch {
+			return false;
+		}
+	}
+	// <<<
 }
+
+
+
+
+
+
+
 
 // -- END

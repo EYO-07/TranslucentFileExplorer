@@ -120,11 +120,7 @@ public partial class FileExplorer_Form : Form {
 		// main_panel.Panel1
 		drag_window(this.main_panel.Panel1);
 		on_double_click(this.main_panel.Panel1, ()=>{
-			if (this.FormBorderStyle == FormBorderStyle.Sizable ) {
-				hide_titlebar(this);
-			} else if (this.FormBorderStyle == FormBorderStyle.None) {
-				show_titlebar(this);
-			}
+			SBR_toggle_title_bar();
 		});
 		// explorer 
 		set_as_filesystem_tree(this.explorer);
@@ -156,11 +152,9 @@ public partial class FileExplorer_Form : Form {
 			TreeNode node = this.explorer.SelectedNode; 
 			if (node == null) return ;
 			if (node.Tag is string path && Directory.Exists(path)) {
-				if (this.data.Directories.Contains(path)){
-					if ( confirmation_dialog("Dialog","Remove "+path+" from Explorer?") ){
-						this.data.Directories.Remove(path);
-						this.explorer.Nodes.Remove(node);
-					}
+				if (this.data.Directories.Contains(path)){					
+					this.data.Directories.Remove(path);
+					this.explorer.Nodes.Remove(node);
 				}
 			}
 		});
@@ -171,6 +165,15 @@ public partial class FileExplorer_Form : Form {
 			bool is_exe = ( ext==".exe" || ext==".bat" );
 			if (is_exe && !confirmation_dialog("Confirm","Are You sure to Execute/Open :"+path)) return ;
 			SBR_open_execute(path);
+		});
+		set_action(exp_menu, "Edit", (s,e)=> {
+			string path = get_path_from_selected_node();
+			if (string.IsNullOrEmpty(path)) return ;
+			string ext = get_extension(path);
+			bool is_exe = ( ext==".exe" || ext==".bat" );
+			if (is_exe) return ;
+			if ( !confirmation_dialog("Confirm","Are You sure to Edit this File > "+path)) return ;
+			SBR_edit(path);
 		});
 		set_action(exp_menu, "Open CMD", (s,e) => {
 			string path = get_path_from_selected_node();
@@ -193,6 +196,9 @@ public partial class FileExplorer_Form : Form {
 		});
 		set_action(exp_menu, "Docking Toggle", (s,e)=>{
 			SBR_dock_toggle();
+		});
+		set_action(exp_menu, "Toggle Title Bar", (s,e)=>{
+			SBR_toggle_title_bar();
 		});
 		set_action(exp_menu, "Create a Zip Backup", (s,e)=>{
 			BEGIN_LO();
@@ -228,6 +234,28 @@ public partial class FileExplorer_Form : Form {
 				}
 			}
 			END_LO(); 
+		});
+		set_action(exp_menu, "Rename File", (s,e)=>{
+			var nodes = this.explorer.GetSelectedNodes();
+			if (nodes.Count != 1) {
+				MessageBox.Show("Please Select One and Only One File to Rename");
+				return;
+			}
+			string path = get_path_from_selected_node();
+			string old_filename = get_filename(path);
+			if (string.IsNullOrEmpty(path)) return ;
+			string new_filename = input_dialog(
+				this, 
+				"Rename File", 
+				"New Filename :", 
+				old_filename
+			);
+			if (string.IsNullOrEmpty(new_filename)) return ;
+			if ( !rename_file(path, new_filename) ) {
+				MessageBox.Show("Failed to Rename File"); 
+				return ;
+			}
+			add_log_color( this.log_list, old_filename+" > "+new_filename,Color.Magenta );
 		});
 		this.explorer.MouseClick += (s,e) => {
 			var node = get_pointed_node(this.explorer);
@@ -299,22 +327,17 @@ public partial class FileExplorer_Form : Form {
 				SBR_clear_selected_files();
 			};
 		}
+		var button_op_mul = buttons.Get(2);
+		if(button_op_mul!=null) {
+			button_op_mul.Click += (s,e) => {
+				SBR_button_op_mul();
+			};
+		}
 		set_action(this.selected_context_menu, "Trash", (s,e)=>{
 			SBR_delete_selected_files();
 		});
 		set_action(this.selected_context_menu, "Open Multiple Selected", (s,e) => {
-			if (! confirmation_dialog("Dialog","This will open multiple files, procceed?") ) return ;
-			var paths = get_fullpath_selected(this.selected_files);
-			if ( has_extension(paths, ".bat") ) return ;
-			if ( has_extension(paths, ".exe") ) return ;
-			foreach( var path in paths ){
-				if (string.IsNullOrEmpty(path)) continue ;
-				if ( !is_file(path) ) continue ;
-				if ( is_dir(path) ) continue ;
-				SBR_open_execute(path); 
-			}
-			SBR_remove_selected_selected_files();
-			SBR_refresh_dirty_nodes();
+			SBR_open_multiple_files();
 		});
 		// log_list 
 		set_action(this.log_list_context_menu, "Clear", (s,e)=>{
@@ -342,24 +365,29 @@ public partial class FileExplorer_Form : Form {
 		foreach( string path in get_drives() ){
 			join( this.explorer, new_multiselection_tree(path) );
 		}
-		join(this.explorer, new_dummy_tree("---"));
+		join(this.explorer, new_dummy_tree("..."));
 		foreach( string path in this.data.Directories ){
 			if (! is_dir(path)) continue ;
 			join( this.explorer, new_multiselection_tree(path) );
 		}
 		this.explorer_context_menu = add_context_menu(this.explorer, new List<object>{
 			"Select Files",
-			"Add Selected Directory to Explorer",
-			"Remove Selected Directory from Explorer", 
-			"Add Executable to Shortcuts", 
+			new_submenu("Explorer Operations", new List<object>{
+				"Add Selected Directory to Explorer",
+				"Remove Selected Directory from Explorer", 
+				"Add Executable to Shortcuts",
+			}),
 			new_submenu("File Operations", new List<object>{
 				"Open/Execute",
+				// "Edit",
 				"Open CMD",
 				"Create a Zip Backup",
+				"Rename File",
 				"Paste Copy of Selected Files",
 				"Move Selected Files"		
 			}),
-			"Docking Toggle"
+			"Docking Toggle",
+			"Toggle Title Bar"
 		});
 		this.shortcuts = new_file_list_icons();
 		foreach(var path in this.data.Shortcuts){
@@ -377,7 +405,8 @@ public partial class FileExplorer_Form : Form {
 		this.selected_panel = get_first<TableLayoutPanel>(selected_page);
 		var button_labels = new List<string> {
 			"Remove Selected", 
-			"Clear"
+			"Clear",
+			"Open Multiple Files"
 		};
 		var buttons = new_dark_button_list(button_labels);
 		this.selected_buttons_panel = new_horizontal_panel(buttons);
@@ -544,18 +573,31 @@ public partial class FileExplorer_Form : Form {
 			open_in_windows_explorer(path);
 			add_log_color(
 				this.log_list,
-				"Directory Opened "+path,
+				"Directory Opened > "+path,
 				rgb(0,255,0)
 			);
 		} else if (is_file(path)) {
 			default_program_start(path);
 			add_log_color(
 				this.log_list,
-				"Executed/Opened "+path,
+				"Executed/Opened > "+path,
 				Color.Yellow
 			);
 		}
 		
+	}
+	private void SBR_edit(string path){
+		if (is_file(path)) {
+			if ( !default_program_edit(path) ) {
+				MessageBox.Show("Error");
+				return; 
+			}
+			add_log_color(
+				this.log_list,
+				"Open to Edit > "+path,
+				Color.Yellow
+			);
+		}
 	}
 	private void SBR_dock_active() {
 		if (!this.data.Docking) return ;
@@ -613,7 +655,6 @@ public partial class FileExplorer_Form : Form {
 		SBR_refresh_dirty_nodes();
 		END_LO();
 	}
-	// >>>
 	private bool create_backup_zip(string f_path) {
 		try {
 			// 1) Check if folder exists
@@ -675,7 +716,42 @@ public partial class FileExplorer_Form : Form {
 			return false;
 		}
 	}
-	// <<<
+	private void SBR_open_multiple_files() {
+		if (! confirmation_dialog("Dialog","This will open multiple files highlighted from this list, procceed?") ) return ;
+		var paths = get_fullpath_selected(this.selected_files);
+		if ( has_extension(paths, ".bat") ) return ;
+		if ( has_extension(paths, ".exe") ) return ;
+		foreach( var path in paths ){
+			if (string.IsNullOrEmpty(path)) continue ;
+			if ( !is_file(path) ) continue ;
+			if ( is_dir(path) ) continue ;
+			SBR_open_execute(path); 
+		}
+		SBR_remove_selected_selected_files();
+		SBR_refresh_dirty_nodes();
+	}
+	private void SBR_button_op_mul() {
+		if (! confirmation_dialog("Dialog","This will open multiple files from this list, procceed?") ) return ;
+		var paths = get_fullpath(this.selected_files);
+		if ( has_extension(paths, ".bat") ) return ;
+		if ( has_extension(paths, ".exe") ) return ;
+		if ( has_extension(paths, ".dll") ) return ;
+		foreach( var path in paths ){
+			if (string.IsNullOrEmpty(path)) continue ;
+			if ( !is_file(path) ) continue ;
+			if ( is_dir(path) ) continue ;
+			SBR_open_execute(path); 
+		}
+		// SBR_remove_selected_selected_files();
+		// SBR_refresh_dirty_nodes();
+	}
+	private void SBR_toggle_title_bar() {
+		if (this.FormBorderStyle == FormBorderStyle.Sizable ) {
+			hide_titlebar(this);
+		} else if (this.FormBorderStyle == FormBorderStyle.None) {
+			show_titlebar(this);
+		}
+	}
 }
 
 // -- END 
