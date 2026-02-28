@@ -39,11 +39,13 @@ public partial class FileExplorer_Form : Form {
 	// explorer 
 	private TabPage explorer_page;
 	private TableLayoutPanel explorer_panel;
+	private TextBox filters;
 	private DarkTreeView explorer;
 	private ContextMenuStrip explorer_context_menu;
 	private readonly HashSet<TreeNode> dirty_nodes = new();
 	private ListView shortcuts;
 	private ContextMenuStrip shortcuts_context_menu;
+	private List<string> positive_filters = new List<string>();
 	// selected files 
 	private TabPage selected_page;
 	private TableLayoutPanel selected_panel;
@@ -79,7 +81,8 @@ public partial class FileExplorer_Form : Form {
 		this.Location = new Point(this.data.X, this.data.Y);
 		// 
 		this.explorer_panel.Dock = DockStyle.Fill;
-		set_as_vertical_flow_layout(this.explorer_panel, new List<float>{82F,18F});
+		set_as_vertical_flow_layout(this.explorer_panel, new List<float>{4F,80F,16F});
+		this.explorer_panel.Controls.Add( this.filters );
 		this.explorer_panel.Controls.Add( this.explorer );
 		this.explorer_panel.Controls.Add( this.shortcuts );
 		//
@@ -122,11 +125,24 @@ public partial class FileExplorer_Form : Form {
 		on_double_click(this.main_panel.Panel1, ()=>{
 			SBR_toggle_title_bar();
 		});
+		// filters 
+		this.filters.TextChanged += (s,e) => {
+			this.positive_filters = get_tokens(this.filters);
+		};
 		// explorer 
 		set_as_filesystem_tree(this.explorer);
 		this.explorer.KeyDown += (s,e) => {
 			if (e.KeyCode == Keys.Enter) {
 				SBR_select_files();
+				return ;
+			}
+			if (e.KeyCode == Keys.Delete) {
+				SBR_rem_selected_dir_to_exp();
+				return ;
+			}
+			if (e.KeyCode == Keys.Insert) {
+				SBR_add_selected_dir_to_exp();
+				return ;
 			}
 		}; 
 		var exp_menu = this.explorer_context_menu;
@@ -140,23 +156,10 @@ public partial class FileExplorer_Form : Form {
 			SBR_paste_copy_selected_files();
 		});
 		set_action(exp_menu, "Add Selected Directory", (s,e) => {
-			var str_list = get_fullpath( this.explorer.GetSelectedNodes() );
-			if (str_list.Count == 0) return ;
-			foreach( string path in str_list ){
-				if (! is_dir(path)) continue ;
-				join( this.explorer, new_multiselection_tree(path) );
-				this.data.Directories.Add(path);
-			}
+			SBR_add_selected_dir_to_exp();
 		});
 		set_action(exp_menu, "Remove Selected Directory", (s,e) => {
-			TreeNode node = this.explorer.SelectedNode; 
-			if (node == null) return ;
-			if (node.Tag is string path && Directory.Exists(path)) {
-				if (this.data.Directories.Contains(path)){					
-					this.data.Directories.Remove(path);
-					this.explorer.Nodes.Remove(node);
-				}
-			}
+			SBR_rem_selected_dir_to_exp();
 		});
 		set_action(exp_menu, "Open/Execute", (s,e) => {
 			string path = get_path_from_selected_node();
@@ -189,7 +192,8 @@ public partial class FileExplorer_Form : Form {
 			if (
 				ext!=".bat" 
 				&& ext!=".exe" 
-				&& ext!=".lnk"
+				&& ext!=".lnk" 
+				&& ext!=".msc" 
 			) return ;
 			add_to_list_filesystem_view_icons(this.shortcuts, path);
 			this.data.Shortcuts.Add(path);
@@ -260,12 +264,14 @@ public partial class FileExplorer_Form : Form {
 		this.explorer.MouseClick += (s,e) => {
 			var node = get_pointed_node(this.explorer);
 			if (node != null) {
-				if (node.Tag is string path && is_dir(path)) {
-					refresh_filesystem_node(node);
+				if (node.Tag is string path) {
+					if (is_dir(path)) {
+						filter_filesystem_node(node, this.positive_filters);
+					} else if (is_file(path)) {
+						Clipboard.SetText(path);
+					}
 				}
 			}
-			
-			// >>> 12022026
 			var nodes = this.explorer.GetSelectedNodes();
 			if (nodes.Count == 1) {
 				string? target_path = null;
@@ -284,8 +290,6 @@ public partial class FileExplorer_Form : Form {
 					}
 				}
 			}
-			// <<< 12022026
-			
 		};
 		// shortcuts 
 		var short_menu = this.shortcuts_context_menu;	
@@ -348,7 +352,7 @@ public partial class FileExplorer_Form : Form {
 			);
 		});
 	}
-	private void _theme(){
+	private void _theme() {
 		Color background = Color.FromArgb(10, 10, 15);
 		Color text = Color.FromArgb(255, 255, 255);
 		// Set colors for the form
@@ -361,11 +365,12 @@ public partial class FileExplorer_Form : Form {
 	private void SBR_explorer_tab_components() {
 		this.explorer_page = add_tab<TableLayoutPanel>(this.tabs, "Explorer");
 		this.explorer_panel = get_first<TableLayoutPanel>(explorer_page);
+		this.filters = new_text_box();
 		this.explorer = new_dark_tree("Explorer");
 		foreach( string path in get_drives() ){
 			join( this.explorer, new_multiselection_tree(path) );
 		}
-		join(this.explorer, new_dummy_tree("..."));
+		join(this.explorer, new_dummy_tree("*"));
 		foreach( string path in this.data.Directories ){
 			if (! is_dir(path)) continue ;
 			join( this.explorer, new_multiselection_tree(path) );
@@ -750,6 +755,25 @@ public partial class FileExplorer_Form : Form {
 			hide_titlebar(this);
 		} else if (this.FormBorderStyle == FormBorderStyle.None) {
 			show_titlebar(this);
+		}
+	}
+	private void SBR_add_selected_dir_to_exp() {
+		var str_list = get_fullpath( this.explorer.GetSelectedNodes() );
+		if (str_list.Count == 0) return ;
+		foreach( string path in str_list ){
+			if (! is_dir(path)) continue ;
+			join( this.explorer, new_multiselection_tree(path) );
+			this.data.Directories.Add(path);
+		}
+	}
+	private void SBR_rem_selected_dir_to_exp() {
+		TreeNode node = this.explorer.SelectedNode; 
+		if (node == null) return ;
+		if (node.Tag is string path && Directory.Exists(path)) {
+			if (this.data.Directories.Contains(path)){					
+				this.data.Directories.Remove(path);
+				this.explorer.Nodes.Remove(node);
+			}
 		}
 	}
 }

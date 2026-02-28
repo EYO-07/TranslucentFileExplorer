@@ -530,6 +530,15 @@ public static class Incantation {
             Font = new Font("Consolas", 8),
         };
     }
+	public static TextBox new_text_box() {
+		return new TextBox
+        {
+		 	BorderStyle = BorderStyle.FixedSingle, 
+			WordWrap = true,
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 8)
+        };
+	}
 	public static TabControl new_multiline_text_tabs() { // deprecated 
 		// --> new_tabs() 
         var tabControl = new TabControl
@@ -577,6 +586,13 @@ public static class Incantation {
         tabs.TabPages.Add(newTab);
 		return newTab;
     }
+	// >>>
+	public static List<string> get_tokens(TextBox textBox) {
+		return textBox.Text
+			.Split((char[])null, StringSplitOptions.RemoveEmptyEntries)
+			.ToList();
+	}
+	// <<<
 	
 	// Events 
 	public static void key_shortcut(Control control, string modifiers, string key, Action action) {
@@ -637,6 +653,8 @@ public static class Incantation {
 		};
 	}
 	
+
+	
 	[DllImport("user32.dll")]
 	private static extern bool ReleaseCapture();
 	[DllImport("user32.dll")]
@@ -695,6 +713,12 @@ public static class Incantation {
 	public static Color rgb(int r, int g, int b) {
 		return Color.FromArgb(r,g,b);
 	}
+	
+	// >>>
+	public static void border_color_on_focus_change(Control control, Color focused, Color unfocused) {
+		
+	}
+	// <<<
 	
 	// Context Menu 
 	public static ContextMenuStrip add_context_menu(Control? control, List<object> items) {
@@ -996,45 +1020,74 @@ public static class Incantation_TREEVIEW {
 		string? path = node.Tag as string;
 		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) return;
 		node.Nodes.Clear();
-		try
-		{
+		try {
 			// Add directories
-			foreach (var dir in get_directories(path))
-			{
-				try
-				{
+			foreach (var dir in get_directories(path)) {
+				try {
 					string dirName = Path.GetFileName(dir);
 					var dirNode = new TreeNode(dirName) { Tag = dir };
-
-					try
-					{
+					try {
 						if (get_directories(dir).Length > 0 || get_files(dir).Length > 0)
 							dirNode.Nodes.Add(dummy_node);
-					}
-					catch { }
-
+					} catch { }
 					node.Nodes.Add(dirNode);
-				}
-				catch { }
+				} catch { }
 			}
-
 			// Add files
-			foreach (var file in get_files(path))
-			{
-				try
-				{
+			foreach (var file in get_files(path)) {
+				try {
 					string fileName = Path.GetFileName(file);
 					var fileNode = new TreeNode(fileName) { Tag = file };
 					node.Nodes.Add(fileNode);
-				}
-				catch { }
+				} catch { }
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) {
 			node.Nodes.Add(new TreeNode($"Error: {ex.Message}"));
 		}
 	}
+	// >>>
+	public static void filter_filesystem_node(TreeNode node, List<string> pos_filters) {
+		string? path = node.Tag as string;
+		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) return;
+		node.Nodes.Clear();
+		try {
+			// Add directories
+			foreach (var dir in get_directories(path)) {
+				try {
+					string dirName = Path.GetFileName(dir);
+					var dirNode = new TreeNode(dirName) { Tag = dir };
+					try {
+						if (get_directories(dir).Length > 0 || get_files(dir).Length > 0)
+							dirNode.Nodes.Add(dummy_node);
+					} catch { }
+					node.Nodes.Add(dirNode);
+				} catch { }
+			}
+			// Add files - filtered
+			foreach (var file in get_files(path)) {
+				try {
+					string fileName = Path.GetFileName(file);
+					string lower_fileName = fileName.ToLower();
+					bool has_filters = true;
+					foreach(var s in pos_filters) {
+						if ( s == "" ) continue ; 
+						if ( !lower_fileName.Contains(s.ToLower()) ) { 
+							has_filters = false ; 
+							break ; 
+						}
+					}
+					if (!has_filters) continue ;
+					var fileNode = new TreeNode(fileName) { Tag = file };
+					node.Nodes.Add(fileNode);
+				} catch { }
+			}
+		}
+		catch (Exception ex) {
+			node.Nodes.Add(new TreeNode($"Error: {ex.Message}"));
+		}
+	}
+	// <<<
 	private static string[] get_directories(string path) {
 		try {
 			// Fix paths like "G:" to "G:\"
@@ -1105,6 +1158,7 @@ public static class Incantation_TREEVIEW {
         // End update to refresh the TreeView
         tree.EndUpdate();
     }
+	
 }
 
 public static class Incantation_LISTVIEW {
@@ -1949,8 +2003,7 @@ public class DarkTreeView : MultiSelectTreeView {
 		var exe_color = Color.Yellow;
 		var special_file_color = Color.Cyan;
 		var editable_color = Color.Magenta;
-		if (node.Tag is string path)
-		{
+		if (node.Tag is string path) {
 			if (Directory.Exists(path))
 				return Color.FromArgb(0,255,0); // Folder
 			if (File.Exists(path)) {
@@ -1966,6 +2019,8 @@ public class DarkTreeView : MultiSelectTreeView {
 					case ".mp3": return media_color;
 					case ".mp4": return media_color;
 					case ".mkv": return media_color;
+					case ".zip": return special_file_color;
+					case ".7z": return special_file_color;
 				}
 				return Color.FromArgb(255,255,255);     // File
 			} 
