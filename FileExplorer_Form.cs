@@ -19,6 +19,8 @@ public class Form_DATA {
 	public List<string> Directories { get; set; } = new List<string>();
 	public List<string> Shortcuts { get; set; } = new List<string>();
 	public bool Docking { get; set; }
+	public bool HideTitleBar { get; set; }
+	public string Filters { get; set; }
     public Form_DATA() {
         Width = 800;
         Height = 600;
@@ -27,6 +29,8 @@ public class Form_DATA {
 		Directories = new List<string>();
 		Shortcuts = new List<string>();
 		Docking = false;
+		HideTitleBar = false;
+		Filters = "";
     }
 }
 
@@ -39,13 +43,13 @@ public partial class FileExplorer_Form : Form {
 	// explorer 
 	private TabPage explorer_page;
 	private TableLayoutPanel explorer_panel;
-	private TextBox filters;
+	private TextBox textbox_filters;
 	private DarkTreeView explorer;
 	private ContextMenuStrip explorer_context_menu;
 	private readonly HashSet<TreeNode> dirty_nodes = new();
 	private ListView shortcuts;
 	private ContextMenuStrip shortcuts_context_menu;
-	private List<string> positive_filters = new List<string>();
+	private List<string> filters = new List<string>();
 	// selected files 
 	private TabPage selected_page;
 	private TableLayoutPanel selected_panel;
@@ -58,6 +62,7 @@ public partial class FileExplorer_Form : Form {
 	private string last_log_text = "";
 	// -- 
 	private bool long_op_topmost;
+	private TreeNode? last_pointed_node = null;
 	// -- 
     public FileExplorer_Form() { 
 		InitializeComponent(); // designer
@@ -82,7 +87,7 @@ public partial class FileExplorer_Form : Form {
 		// 
 		this.explorer_panel.Dock = DockStyle.Fill;
 		set_as_vertical_flow_layout(this.explorer_panel, new List<float>{4F,80F,16F});
-		this.explorer_panel.Controls.Add( this.filters );
+		this.explorer_panel.Controls.Add( this.textbox_filters );
 		this.explorer_panel.Controls.Add( this.explorer );
 		this.explorer_panel.Controls.Add( this.shortcuts );
 		//
@@ -106,6 +111,7 @@ public partial class FileExplorer_Form : Form {
 			this.data.Height = this.Height;
 			this.data.X = this.Location.X;
 			this.data.Y = this.Location.Y;
+			this.data.Filters = this.textbox_filters.Text;
 			save(
 				join(get_exec_dir(), "FileExplorer.sav"), 
 				JsonSerializer.Serialize(this.data)
@@ -113,11 +119,12 @@ public partial class FileExplorer_Form : Form {
 		};
 		this.Activated += (s,e) => {
 			this.Opacity = 0.85;
+			SBR_refresh_last_pointed_node();
 			SBR_dock_active(); 
 		};
 		this.Deactivate += (s,e) => {
 			this.Opacity = 0.35;
-			collapse(this.explorer,1); // this.explorer.CollapseAll();
+			// collapse(this.explorer,1); // this.explorer.CollapseAll();
 			SBR_dock_inactive();
 		};
 		// main_panel.Panel1
@@ -126,8 +133,13 @@ public partial class FileExplorer_Form : Form {
 			SBR_toggle_title_bar();
 		});
 		// filters 
-		this.filters.TextChanged += (s,e) => {
-			this.positive_filters = get_tokens(this.filters);
+		this.textbox_filters.TextChanged += (s,e) => {
+			this.filters = get_tokens(this.textbox_filters);
+		};
+		this.textbox_filters.KeyDown += (s,e) => {
+			if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) {
+				SBR_refresh_last_pointed_node();
+			} 
 		};
 		// explorer 
 		set_as_filesystem_tree(this.explorer);
@@ -262,16 +274,9 @@ public partial class FileExplorer_Form : Form {
 			add_log_color( this.log_list, old_filename+" > "+new_filename,Color.Magenta );
 		});
 		this.explorer.MouseClick += (s,e) => {
-			var node = get_pointed_node(this.explorer);
-			if (node != null) {
-				if (node.Tag is string path) {
-					if (is_dir(path)) {
-						filter_filesystem_node(node, this.positive_filters);
-					} else if (is_file(path)) {
-						Clipboard.SetText(path);
-					}
-				}
-			}
+			SBR_refresh_pointed_dir();
+			SBR_copy_file_to_clipboard();
+			// -- 
 			var nodes = this.explorer.GetSelectedNodes();
 			if (nodes.Count == 1) {
 				string? target_path = null;
@@ -365,7 +370,9 @@ public partial class FileExplorer_Form : Form {
 	private void SBR_explorer_tab_components() {
 		this.explorer_page = add_tab<TableLayoutPanel>(this.tabs, "Explorer");
 		this.explorer_panel = get_first<TableLayoutPanel>(explorer_page);
-		this.filters = new_text_box();
+		this.textbox_filters = new_text_box();
+		this.textbox_filters.Text = this.data.Filters;
+		this.filters = get_tokens(this.textbox_filters);
 		this.explorer = new_dark_tree("Explorer");
 		foreach( string path in get_drives() ){
 			join( this.explorer, new_multiselection_tree(path) );
@@ -773,6 +780,47 @@ public partial class FileExplorer_Form : Form {
 			if (this.data.Directories.Contains(path)){					
 				this.data.Directories.Remove(path);
 				this.explorer.Nodes.Remove(node);
+			}
+		}
+	}
+	private TreeNode? get_pointed_node(TreeView tree) {
+		TreeNode? node = Incantation_TREEVIEW.get_pointed_node(tree);
+		if (node != null) this.last_pointed_node = node;
+		return node;
+	}
+	private void SBR_refresh_pointed_dir() {
+		var node = get_pointed_node(this.explorer);
+		SBR_refresh_dir(node);
+	}
+	private void SBR_refresh_dir(TreeNode node) {
+		if (node == null) return;
+		if (!node.IsExpanded) return;
+		if (node.Tag is string path) {
+			if ( is_dir(path) ) {
+				filter_filesystem_node(node, this.filters);
+			} 
+		}
+	}
+	private void SBR_copy_file_to_clipboard() {
+		var node = get_pointed_node(this.explorer);
+		if (node == null) return;		
+		if (node.Tag is string path) {
+			if (is_dir(path)) return ;
+			if (is_file(path)) Clipboard.SetText(path);
+		}
+	}
+	private void SBR_refresh_last_pointed_node() {
+		var node = this.last_pointed_node;
+		if (node != null) {
+			if (node.Tag is string path) {
+				if ( is_dir(path) && node.IsExpanded ) {
+					filter_filesystem_node(node, this.filters);
+				} else {
+					var parent_node = get_parent_node(node);
+					if (parent_node!=null) {
+						if (parent_node.IsExpanded) filter_filesystem_node(parent_node, this.filters);
+					}
+				}
 			}
 		}
 	}

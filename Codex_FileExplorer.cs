@@ -1019,10 +1019,11 @@ public static class Incantation_TREEVIEW {
 	public static void refresh_filesystem_node(TreeNode node) {
 		string? path = node.Tag as string;
 		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) return;
-		node.Nodes.Clear();
+		clear_non_existent_filesystem_node_childs(node);
 		try {
 			// Add directories
 			foreach (var dir in get_directories(path)) {
+				if ( is_path_in_filesystem_node(dir, node) ) continue;
 				try {
 					string dirName = Path.GetFileName(dir);
 					var dirNode = new TreeNode(dirName) { Tag = dir };
@@ -1035,6 +1036,7 @@ public static class Incantation_TREEVIEW {
 			}
 			// Add files
 			foreach (var file in get_files(path)) {
+				if ( is_path_in_filesystem_node(file, node) ) continue;
 				try {
 					string fileName = Path.GetFileName(file);
 					var fileNode = new TreeNode(fileName) { Tag = file };
@@ -1046,14 +1048,85 @@ public static class Incantation_TREEVIEW {
 			node.Nodes.Add(new TreeNode($"Error: {ex.Message}"));
 		}
 	}
-	// >>>
-	public static void filter_filesystem_node(TreeNode node, List<string> pos_filters) {
+	
+	public static void clear_non_existent_filesystem_node_childs(TreeNode node) {
+		List<TreeNode> childs_to_be_removed = new List<TreeNode>(); 
+		string? parent_path = node.Tag as string;
+		if (string.IsNullOrEmpty(parent_path) || !Directory.Exists(parent_path)) return;
+		foreach(TreeNode child_node in node.Nodes) {
+			string? child_path = child_node.Tag as string;
+			if ( string.IsNullOrEmpty(child_path) ) { childs_to_be_removed.Add(child_node); continue; }
+			if (!is_dir(child_path) && !is_file(child_path)) childs_to_be_removed.Add(child_node);
+		}
+		foreach(TreeNode child_node in childs_to_be_removed) {
+			node.Nodes.Remove(child_node);
+		}
+	}
+	private static bool verify_filters(string test, List<string> filters) {
+		bool has_at_least_one = false;
+		int pos_count = 0;
+		bool dont_have_any = true;
+		foreach(var s in filters) {
+			if ( s == "" ) continue ; 
+			if ( s.StartsWith("-") ) {
+				if ( s.Length <= 1 ) continue ;
+				if ( test.Contains(s.Substring(1,s.Length-1), StringComparison.OrdinalIgnoreCase) ) dont_have_any = false ;
+			} else {
+				pos_count++;
+				if ( test.Contains(s, StringComparison.OrdinalIgnoreCase) ) has_at_least_one = true;
+			}
+		}
+		if (pos_count>0 && !has_at_least_one) return false;
+		if (!dont_have_any) return false;
+		return true; 
+	}
+	public static Dictionary<string, bool> clear_filtered_filesystem_node_childs(TreeNode node, List<string> filters) {
+		Dictionary<string, bool> result = new Dictionary<string, bool>();
+		HashSet<TreeNode> childs_to_be_removed = new HashSet<TreeNode>(); 
+		string? parent_path = node.Tag as string;
+		if (string.IsNullOrEmpty(parent_path) || !Directory.Exists(parent_path)) return result;
+		foreach(TreeNode child_node in node.Nodes) {
+			string? child_path = child_node.Tag as string;
+			if ( string.IsNullOrEmpty(child_path) ) { childs_to_be_removed.Add(child_node); continue; }
+			if (!is_dir(child_path) && !is_file(child_path)) { childs_to_be_removed.Add(child_node); continue; }
+			if ( is_file(child_path) ) {
+				string name = Path.GetFileName(child_path);
+				result[name] = verify_filters(name, filters);
+				if (! result[name] ) childs_to_be_removed.Add(child_node);
+			}
+		}
+		foreach(TreeNode child_node in childs_to_be_removed) {
+			node.Nodes.Remove(child_node);
+		}
+		return result;
+	}
+	public static bool is_path_in_filesystem_node(string path, TreeNode node) {
+		// return null if path is invalid 
+		if ( string.IsNullOrEmpty(path) ) return false;
+		if (!is_dir(path) && !is_file(path)) return false;
+		foreach(TreeNode child in node.Nodes) {
+			string? child_path = child.Tag as string;
+			if (string.IsNullOrEmpty(child_path)) continue;
+			if ( string.Equals(path, child_path, StringComparison.OrdinalIgnoreCase) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+	public static void filter_filesystem_node(TreeNode node, List<string> filters) {
+		if (node == null) return; 
 		string? path = node.Tag as string;
 		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) return;
-		node.Nodes.Clear();
+		var verified_filters = clear_filtered_filesystem_node_childs(node, filters);
 		try {
 			// Add directories
+			var existing = node.Nodes
+				.Cast<TreeNode>()
+				.Select(n => n.Tag as string)
+				.Where(p => p != null)
+				.ToHashSet(StringComparer.OrdinalIgnoreCase);
 			foreach (var dir in get_directories(path)) {
+				if (existing.Contains(dir)) continue;
 				try {
 					string dirName = Path.GetFileName(dir);
 					var dirNode = new TreeNode(dirName) { Tag = dir };
@@ -1066,18 +1139,14 @@ public static class Incantation_TREEVIEW {
 			}
 			// Add files - filtered
 			foreach (var file in get_files(path)) {
+				if (existing.Contains(file)) continue;
 				try {
 					string fileName = Path.GetFileName(file);
-					string lower_fileName = fileName.ToLower();
-					bool has_filters = true;
-					foreach(var s in pos_filters) {
-						if ( s == "" ) continue ; 
-						if ( !lower_fileName.Contains(s.ToLower()) ) { 
-							has_filters = false ; 
-							break ; 
-						}
+					if ( verified_filters.ContainsKey(fileName) ) { 
+						if ( !verified_filters[fileName] ) continue; 
+					} else {
+						if ( !verify_filters(fileName, filters)) continue;
 					}
-					if (!has_filters) continue ;
 					var fileNode = new TreeNode(fileName) { Tag = file };
 					node.Nodes.Add(fileNode);
 				} catch { }
@@ -1087,7 +1156,7 @@ public static class Incantation_TREEVIEW {
 			node.Nodes.Add(new TreeNode($"Error: {ex.Message}"));
 		}
 	}
-	// <<<
+	
 	private static string[] get_directories(string path) {
 		try {
 			// Fix paths like "G:" to "G:\"
@@ -1158,6 +1227,17 @@ public static class Incantation_TREEVIEW {
         // End update to refresh the TreeView
         tree.EndUpdate();
     }
+	public static TreeNode? get_parent_node(TreeNode? node) {
+		if (node == null) return null;
+		return node.Parent;
+	}
+	
+	public static bool is_node_expanded(TreeNode? node) {
+		if (node == null)
+			return false;
+
+		return node.IsExpanded;
+	}
 	
 }
 
@@ -1317,8 +1397,6 @@ public static class Incantation_LISTVIEW {
 		log_list.Items.Add(item); 
 		log_list.EnsureVisible(log_list.Items.Count - 1); // Scroll to latest
 	}
-	
-	// >>>
 	public static void add_log_color(ListView log_list, string label, Color Fore, Color Back) {
 		var item = new ListViewItem(DateTime.Now.ToString("HH:mm:ss"));
 		item.BackColor = Back;
@@ -1336,8 +1414,6 @@ public static class Incantation_LISTVIEW {
 		log_list.Items.Add(item); 
 		log_list.EnsureVisible(log_list.Items.Count - 1); // Scroll to latest
 	}
-	// <<< 
-	
 	public static void remove_selected(ListView list) {
 		if (list == null || list.SelectedItems.Count == 0) return;
 
@@ -1378,7 +1454,6 @@ public static class Incantation_LISTVIEW {
 		}
 		return paths;
 	}
-	
 	public static ListView new_file_list_icons() {
 		ListView fileList = new ListView();
 		fileList.View = View.LargeIcon;
