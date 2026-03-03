@@ -50,6 +50,7 @@ public partial class FileExplorer_Form : Form {
 	private ListView shortcuts;
 	private ContextMenuStrip shortcuts_context_menu;
 	private List<string> filters = new List<string>();
+	private TreeNode? last_pointed_node = null;
 	// selected files 
 	private TabPage selected_page;
 	private TableLayoutPanel selected_panel;
@@ -62,7 +63,6 @@ public partial class FileExplorer_Form : Form {
 	private string last_log_text = "";
 	// -- 
 	private bool long_op_topmost;
-	private TreeNode? last_pointed_node = null;
 	// -- 
     public FileExplorer_Form() { 
 		InitializeComponent(); // designer
@@ -137,11 +137,26 @@ public partial class FileExplorer_Form : Form {
 			this.filters = get_tokens(this.textbox_filters);
 		};
 		this.textbox_filters.KeyDown += (s,e) => {
-			if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) {
+			if (
+				e.KeyCode == Keys.Space || 
+				e.KeyCode == Keys.Enter || 
+				e.KeyCode == Keys.Tab
+			) {
 				SBR_refresh_last_pointed_node();
 			} 
 		};
 		// explorer 
+		// this.explorer_panel.GotFocus += (s, e) => {			
+			// Console.WriteLine("Focused: " + this.explorer.Focused);
+			// Console.WriteLine("SelectedNode: " + this.explorer.SelectedNode);
+			// if (this.explorer.SelectedNode == null)
+			// {
+				// if (this.last_pointed_node != null)
+					// this.explorer.SelectedNode = this.last_pointed_node;
+				// else if (this.explorer.Nodes.Count > 0)
+					// this.explorer.SelectedNode = this.explorer.Nodes[0];
+			// }
+		// };
 		set_as_filesystem_tree(this.explorer);
 		this.explorer.KeyDown += (s,e) => {
 			if (e.KeyCode == Keys.Enter) {
@@ -155,6 +170,19 @@ public partial class FileExplorer_Form : Form {
 			if (e.KeyCode == Keys.Insert) {
 				SBR_add_selected_dir_to_exp();
 				return ;
+			}
+			if (e.KeyCode == Keys.Right) {
+				var nodes = this.explorer.GetSelectedNodes();
+				if (nodes.Count == 1) {
+					var node = nodes[0];
+					if (node != null && node.Tag is string path) {
+						if ( is_dir(path) ) {
+							filter_filesystem_node(node, this.filters);
+						} 
+					}
+					SBR_copy_file_to_clipboard(node);
+					SBR_log_selected_pointed_file_dir();
+				}
 			}
 		}; 
 		var exp_menu = this.explorer_context_menu;
@@ -276,25 +304,7 @@ public partial class FileExplorer_Form : Form {
 		this.explorer.MouseClick += (s,e) => {
 			SBR_refresh_pointed_dir();
 			SBR_copy_file_to_clipboard();
-			// -- 
-			var nodes = this.explorer.GetSelectedNodes();
-			if (nodes.Count == 1) {
-				string? target_path = null;
-				if (nodes[0].Tag is string path && Directory.Exists(path)) target_path = path;
-				if (target_path != null && is_dir(target_path)) {
-					string log_text = "--> "+target_path;
-					if ( log_text != this.last_log_text ) {
-						add_log(this.log_list, log_text);
-						this.last_log_text = log_text;
-					}
-				} else {
-					string log_text = "--> None";
-					if ( log_text != this.last_log_text ) {
-						add_log(this.log_list, log_text);
-						this.last_log_text = log_text;
-					}
-				}
-			}
+			SBR_log_selected_pointed_file_dir();
 		};
 		// shortcuts 
 		var short_menu = this.shortcuts_context_menu;	
@@ -788,6 +798,26 @@ public partial class FileExplorer_Form : Form {
 		if (node != null) this.last_pointed_node = node;
 		return node;
 	}
+	private void SBR_log_selected_pointed_file_dir() {
+		var nodes = this.explorer.GetSelectedNodes();
+		if (nodes.Count == 1) {
+			string? target_path = null;
+			if (nodes[0].Tag is string path && Directory.Exists(path)) target_path = path;
+			if (target_path != null && is_dir(target_path)) {
+				string log_text = "--> "+target_path;
+				if ( log_text != this.last_log_text ) {
+					add_log(this.log_list, log_text);
+					this.last_log_text = log_text;
+				}
+			} else {
+				string log_text = "--> None";
+				if ( log_text != this.last_log_text ) {
+					add_log(this.log_list, log_text);
+					this.last_log_text = log_text;
+				}
+			}
+		}
+	}
 	private void SBR_refresh_pointed_dir() {
 		var node = get_pointed_node(this.explorer);
 		SBR_refresh_dir(node);
@@ -803,6 +833,9 @@ public partial class FileExplorer_Form : Form {
 	}
 	private void SBR_copy_file_to_clipboard() {
 		var node = get_pointed_node(this.explorer);
+		SBR_copy_file_to_clipboard(node);
+	}
+	private void SBR_copy_file_to_clipboard(TreeNode node) {
 		if (node == null) return;		
 		if (node.Tag is string path) {
 			if (is_dir(path)) return ;

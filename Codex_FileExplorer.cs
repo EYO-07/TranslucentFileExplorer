@@ -653,8 +653,6 @@ public static class Incantation {
 		};
 	}
 	
-
-	
 	[DllImport("user32.dll")]
 	private static extern bool ReleaseCapture();
 	[DllImport("user32.dll")]
@@ -1048,7 +1046,6 @@ public static class Incantation_TREEVIEW {
 			node.Nodes.Add(new TreeNode($"Error: {ex.Message}"));
 		}
 	}
-	
 	public static void clear_non_existent_filesystem_node_childs(TreeNode node) {
 		List<TreeNode> childs_to_be_removed = new List<TreeNode>(); 
 		string? parent_path = node.Tag as string;
@@ -1156,7 +1153,6 @@ public static class Incantation_TREEVIEW {
 			node.Nodes.Add(new TreeNode($"Error: {ex.Message}"));
 		}
 	}
-	
 	private static string[] get_directories(string path) {
 		try {
 			// Fix paths like "G:" to "G:\"
@@ -1231,7 +1227,6 @@ public static class Incantation_TREEVIEW {
 		if (node == null) return null;
 		return node.Parent;
 	}
-	
 	public static bool is_node_expanded(TreeNode? node) {
 		if (node == null)
 			return false;
@@ -1239,6 +1234,21 @@ public static class Incantation_TREEVIEW {
 		return node.IsExpanded;
 	}
 	
+	public static void new_file_explorer_panel(
+		ref TableLayoutPanel panel, 
+		string name, 
+		List<string> directories,
+		string filters
+	) {
+		// -- _components 
+		TextBox? filter_box = new_text_box();
+		ContextMenuStrip? explorer_context_menu = null;
+		ListView? shortcuts = null;
+		ContextMenuStrip? shortcuts_context_menu = null;
+		TreeNode? last_node = null; 
+		// -- _logic 
+		
+	}
 }
 
 public static class Incantation_LISTVIEW {
